@@ -5,18 +5,27 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"text/template"
 
 	"github.com/go-redis/redis"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"golang.org/x/crypto/bcrypt"
-	"main.go/utils"
 )
 
 var client *redis.Client
+var templates *template.Template
 
 type Update struct {
 	id int64
+}
+
+func LoadTemplates(pattern string) {
+	templates = template.Must(template.ParseGlob(pattern))
+}
+
+func ExecuteTemplate(w http.ResponseWriter, template string, data interface{}) {
+	templates.ExecuteTemplate(w, template, data)
 }
 
 var (
@@ -25,13 +34,18 @@ var (
 	ErrUsernameTaken = errors.New("username taken")
 )
 
+func InternalServerError(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusInternalServerError)
+	w.Write([]byte("Internal server error"))
+}
+
 type User struct {
 	id int64
 }
 
 func main() {
 	Init()
-	utils.LoadTemplates("templates/*.html")
+	LoadTemplates("templates/*.html")
 	r := NewRouter()
 	http.Handle("/", r)
 	http.ListenAndServe(":8080", nil)
@@ -222,10 +236,10 @@ func NewRouter() *mux.Router {
 func indexGetHandler(w http.ResponseWriter, r *http.Request) {
 	updates, err := GetAllUpdates()
 	if err != nil {
-		utils.InternalServerError(w)
+		InternalServerError(w)
 		return
 	}
-	utils.ExecuteTemplate(w, "index.html", struct {
+	ExecuteTemplate(w, "index.html", struct {
 		Title       string
 		Updates     []*Update
 		DisplayForm bool
@@ -241,14 +255,14 @@ func indexPostHandler(w http.ResponseWriter, r *http.Request) {
 	untypedUserId := session.Values["user_id"]
 	userId, ok := untypedUserId.(int64)
 	if !ok {
-		utils.InternalServerError(w)
+		InternalServerError(w)
 		return
 	}
 	r.ParseForm()
 	body := r.PostForm.Get("update")
 	err := PostUpdate(userId, body)
 	if err != nil {
-		utils.InternalServerError(w)
+		InternalServerError(w)
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusFound)
@@ -259,27 +273,27 @@ func userGetHandler(w http.ResponseWriter, r *http.Request) {
 	untypedUserId := session.Values["user_id"]
 	currentUserId, ok := untypedUserId.(int64)
 	if !ok {
-		utils.InternalServerError(w)
+		InternalServerError(w)
 		return
 	}
 	vars := mux.Vars(r)
 	username := vars["username"]
 	user, err := GetUserByUsername(username)
 	if err != nil {
-		utils.InternalServerError(w)
+		InternalServerError(w)
 		return
 	}
 	userId, err := user.GetId()
 	if err != nil {
-		utils.InternalServerError(w)
+		InternalServerError(w)
 		return
 	}
 	updates, err := GetUpdates(userId)
 	if err != nil {
-		utils.InternalServerError(w)
+		InternalServerError(w)
 		return
 	}
-	utils.ExecuteTemplate(w, "index.html", struct {
+	ExecuteTemplate(w, "index.html", struct {
 		Title       string
 		Updates     []*Update
 		DisplayForm bool
@@ -291,7 +305,7 @@ func userGetHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func loginGetHandler(w http.ResponseWriter, r *http.Request) {
-	utils.ExecuteTemplate(w, "login.html", nil)
+	ExecuteTemplate(w, "login.html", nil)
 }
 
 func loginPostHandler(w http.ResponseWriter, r *http.Request) {
@@ -302,17 +316,17 @@ func loginPostHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch err {
 		case ErrUserNotFound:
-			utils.ExecuteTemplate(w, "login.html", "unknown user")
+			ExecuteTemplate(w, "login.html", "unknown user")
 		case ErrInvalidLogin:
-			utils.ExecuteTemplate(w, "login.html", "invalid login")
+			ExecuteTemplate(w, "login.html", "invalid login")
 		default:
-			utils.InternalServerError(w)
+			InternalServerError(w)
 		}
 		return
 	}
 	userId, err := user.GetId()
 	if err != nil {
-		utils.InternalServerError(w)
+		InternalServerError(w)
 		return
 	}
 	session, _ := sessions.Store.Get(Store, r, "session")
@@ -329,7 +343,7 @@ func logoutGetHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func registerGetHandler(w http.ResponseWriter, r *http.Request) {
-	utils.ExecuteTemplate(w, "register.html", nil)
+	ExecuteTemplate(w, "register.html", nil)
 }
 
 func registerPostHandler(w http.ResponseWriter, r *http.Request) {
@@ -338,10 +352,10 @@ func registerPostHandler(w http.ResponseWriter, r *http.Request) {
 	password := r.PostForm.Get("password")
 	err := RegisterUser(username, password)
 	if err == ErrUsernameTaken {
-		utils.ExecuteTemplate(w, "register.html", "username taken")
+		ExecuteTemplate(w, "register.html", "username taken")
 		return
 	} else if err != nil {
-		utils.InternalServerError(w)
+		InternalServerError(w)
 		return
 	}
 	http.Redirect(w, r, "/login", http.StatusFound)
